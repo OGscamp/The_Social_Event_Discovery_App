@@ -1,12 +1,139 @@
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { mockEvents } from "@/data/mockEvents";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Users, AlertTriangle } from "lucide-react";
+
+type AttendeeStatus = "going" | "interested" | "not_going";
+
+interface ApiAttendee {
+  event_id: string;
+  user_id: string | number;
+  display_name: string | null;
+  status: AttendeeStatus;
+  joined_at: string;
+}
+
+interface AttendeesResponse {
+  event_id: string;
+  attendee_count: number;
+  attendees: ApiAttendee[];
+}
+
+type LoadState = "loading" | "ready" | "empty" | "not-found" | "error";
+
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function statusLabel(status: AttendeeStatus): string {
+  if (status === "going") return "Going";
+  if (status === "interested") return "Interested";
+  return "Not going";
+}
 
 export default function Attendees() {
   const { id } = useParams();
-  const event = mockEvents.find((e) => e.id === id);
+  const [attendees, setAttendees] = useState<ApiAttendee[]>([]);
+  const [attendeeCount, setAttendeeCount] = useState(0);
+  const [state, setState] = useState<LoadState>("loading");
 
-  if (!event) {
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchAttendees() {
+      if (!id) {
+        setState("not-found");
+        return;
+      }
+
+      try {
+        const res = await fetch(`/events/${id}/attendees`);
+
+        if (res.status === 404) {
+          if (!cancelled) setState("not-found");
+          return;
+        }
+
+        if (!res.ok) {
+          if (!cancelled) setState("error");
+          return;
+        }
+
+        const data: AttendeesResponse = await res.json();
+        if (cancelled) return;
+
+        const list = Array.isArray(data.attendees) ? data.attendees : [];
+        setAttendees(list);
+        setAttendeeCount(
+          typeof data.attendee_count === "number"
+            ? data.attendee_count
+            : list.length
+        );
+        setState(list.length === 0 ? "empty" : "ready");
+      } catch (err) {
+        console.error("Error fetching attendees:", err);
+        if (!cancelled) setState("error");
+      }
+    }
+
+    fetchAttendees();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const header = (
+    <div className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-xl">
+      <div className="container flex h-16 items-center gap-4">
+        <Link
+          to={`/events/${id}`}
+          aria-label="Back to event"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
+        <div>
+          <h1 className="text-sm font-semibold text-foreground">Attendees</h1>
+          <p className="text-xs text-muted-foreground">
+            {state === "ready" || state === "empty"
+              ? `${attendeeCount} ${attendeeCount === 1 ? "person" : "people"} responded`
+              : "Loading\u2026"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (state === "loading") {
+    return (
+      <div className="min-h-screen bg-background">
+        {header}
+        <div role="status" aria-live="polite" className="container py-6">
+          <p className="sr-only">Loading attendees</p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                data-testid="attendee-skeleton"
+                className="flex animate-pulse items-center gap-3 rounded-xl border border-border bg-card p-4"
+              >
+                <div className="h-12 w-12 rounded-full bg-secondary" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3 w-2/3 rounded bg-secondary" />
+                  <div className="h-2 w-1/3 rounded bg-secondary" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "not-found") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <p className="text-muted-foreground">Event not found</p>
@@ -14,33 +141,76 @@ export default function Attendees() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-xl">
-        <div className="container flex h-16 items-center gap-4">
-          <Link to={`/events/${id}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <div>
-            <h1 className="text-sm font-semibold text-foreground">Attendees</h1>
-            <p className="text-xs text-muted-foreground">{event.title}</p>
+  if (state === "error") {
+    return (
+      <div className="min-h-screen bg-background">
+        {header}
+        <div className="container py-10">
+          <div
+            role="alert"
+            className="mx-auto flex max-w-md flex-col items-center rounded-xl border border-destructive/30 bg-destructive/10 p-6 text-center text-destructive"
+          >
+            <AlertTriangle className="mb-2 h-6 w-6" />
+            <p className="font-semibold">Could not load attendees</p>
+            <p className="mt-1 text-sm">
+              Something went wrong talking to the server. Please refresh the
+              page or try again later.
+            </p>
           </div>
         </div>
       </div>
+    );
+  }
 
-      <div className="container py-6">
-        <p className="mb-4 text-sm text-muted-foreground">{event.attendees.length} people attending</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {event.attendees.map((a) => (
-            <div key={a.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-surface-hover">
-              <img src={a.avatar} alt={a.name} className="h-12 w-12 rounded-full object-cover" />
-              <div>
-                <p className="font-medium text-foreground">{a.name}</p>
-                <p className="text-xs text-muted-foreground">Attending</p>
-              </div>
-            </div>
-          ))}
+  if (state === "empty") {
+    return (
+      <div className="min-h-screen bg-background">
+        {header}
+        <div className="container py-10">
+          <div className="mx-auto flex max-w-md flex-col items-center rounded-xl border border-border bg-card p-8 text-center">
+            <Users className="mb-3 h-8 w-8 text-muted-foreground" />
+            <p className="font-semibold text-foreground">
+              No one has responded yet
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Be the first to RSVP and attendees will show up here.
+            </p>
+          </div>
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {header}
+      <div className="container py-6">
+        <p className="mb-4 text-sm text-muted-foreground">
+          {attendeeCount} {attendeeCount === 1 ? "person" : "people"} responded
+        </p>
+        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {attendees.map((a) => (
+            <li
+              key={`${a.event_id}-${a.user_id}`}
+              className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-surface-hover"
+            >
+              <div
+                aria-hidden="true"
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+              >
+                {getInitials(a.display_name)}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-foreground">
+                  {a.display_name || "Anonymous"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {statusLabel(a.status)}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
   );
