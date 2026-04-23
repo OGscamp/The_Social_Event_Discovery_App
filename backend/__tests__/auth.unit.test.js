@@ -165,7 +165,29 @@ describe("Auth API (unit)", () => {
       expect(res.body.error).toMatch(/invalid token/i);
     });
 
-    test("TC-AUTH-012: returns 200 with payload for a valid token", async () => {
+    test("TC-AUTH-012: returns 200 with user record and rsvp summary for a valid token", async () => {
+      pool.query
+        // user lookup
+        .mockResolvedValueOnce({
+          rowCount: 1,
+          rows: [
+            {
+              user_id: 7,
+              email: "alice@test.com",
+              display_name: "Alice Rivera",
+              created_at: new Date("2026-01-15T00:00:00Z"),
+            },
+          ],
+        })
+        // rsvp summary aggregation
+        .mockResolvedValueOnce({
+          rows: [
+            { status: "going", count: 4 },
+            { status: "interested", count: 2 },
+            { status: "not_going", count: 1 },
+          ],
+        });
+
       const token = jwt.sign({ userId: 7, email: "alice@test.com" }, JWT_SECRET, { expiresIn: "1h" });
 
       const res = await request(app)
@@ -175,6 +197,77 @@ describe("Auth API (unit)", () => {
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);
       expect(res.body.payload.userId).toBe(7);
+      expect(res.body.user).toEqual({
+        id: 7,
+        email: "alice@test.com",
+        name: "Alice Rivera",
+        created_at: expect.any(String),
+      });
+      expect(res.body.rsvp_summary).toEqual({
+        going: 4,
+        interested: 2,
+        not_going: 1,
+      });
+    });
+
+    test("TC-AUTH-013: returns 404 when the token's user no longer exists", async () => {
+      pool.query.mockResolvedValueOnce({ rowCount: 0, rows: [] });
+
+      const token = jwt.sign({ userId: 999, email: "ghost@test.com" }, JWT_SECRET, { expiresIn: "1h" });
+
+      const res = await request(app)
+        .get("/auth/me")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toMatch(/user not found/i);
+    });
+
+    test("TC-AUTH-014: rsvp_summary defaults to zeros when user has no RSVPs", async () => {
+      pool.query
+        .mockResolvedValueOnce({
+          rowCount: 1,
+          rows: [
+            {
+              user_id: 8,
+              email: "new@test.com",
+              display_name: "New User",
+              created_at: new Date("2026-04-01T00:00:00Z"),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const token = jwt.sign({ userId: 8, email: "new@test.com" }, JWT_SECRET, { expiresIn: "1h" });
+
+      const res = await request(app)
+        .get("/auth/me")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.rsvp_summary).toEqual({
+        going: 0,
+        interested: 0,
+        not_going: 0,
+      });
+    });
+
+    test("TC-AUTH-015: returns 500 when the database query fails", async () => {
+      pool.query.mockRejectedValueOnce(new Error("db down"));
+
+      const token = jwt.sign({ userId: 7, email: "alice@test.com" }, JWT_SECRET, { expiresIn: "1h" });
+
+      // silence expected console.error
+      const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await request(app)
+        .get("/auth/me")
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/server error/i);
+
+      errSpy.mockRestore();
     });
   });
 });
