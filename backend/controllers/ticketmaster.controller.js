@@ -57,7 +57,8 @@ exports.getTicketmasterEvents = async (req, res) => {
     res.json(events);
   } catch (err) {
     console.error("Ticketmaster error:", err.response?.data || err.message);
-    res.status(500).json({ error: "Failed to fetch Ticketmaster events" });
+    const status = err.response?.status ?? 500;
+    res.status(status).json({ error: "Failed to fetch Ticketmaster events" });
   }
 };
 
@@ -94,6 +95,7 @@ exports.getTicketmasterEventById = async (req, res) => {
       "Ticketmaster detail error:",
       err.response?.data || err.message
     );
-    res.status(500).json({ error: "Failed to fetch Ticketmaster event details" });
+    const status = err.response?.status ?? 500;
+    res.status(status).json({ error: "Failed to fetch Ticketmaster event details" });
   }
 };
