@@ -41,13 +41,13 @@ exports.getEventById = async (req, res) => {
 };
 
 exports.createEvent = async (req, res) => {
-  const { 
-    title, 
-    description = null, 
-    start_time, 
-    end_time = null, 
-    location_name = null 
-  } = req.body;
+  const {
+    title,
+    description = null,
+    start_time,
+    end_time = null,
+    location_name = null
+  } = req.body || {};
   
   const created_by = req.user.userId;
 
