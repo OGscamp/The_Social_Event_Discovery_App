@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Users, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Users, AlertTriangle, Search, X } from "lucide-react";
 
 type AttendeeStatus = "going" | "interested" | "not_going";
+type StatusFilter = "all" | AttendeeStatus;
 
 interface ApiAttendee {
   event_id: string;
@@ -34,11 +35,26 @@ function statusLabel(status: AttendeeStatus): string {
   return "Not going";
 }
 
+// Label used in the filter chip UI — "Not going" is ungainly as a chip, so we
+// surface it as "Declined" there (matches the Profile stats card copy).
+function chipLabel(status: StatusFilter): string {
+  if (status === "all") return "All";
+  if (status === "going") return "Going";
+  if (status === "interested") return "Interested";
+  return "Declined";
+}
+
+const STATUS_CHIPS: StatusFilter[] = ["all", "going", "interested", "not_going"];
+
 export default function Attendees() {
   const { id } = useParams();
   const [attendees, setAttendees] = useState<ApiAttendee[]>([]);
   const [attendeeCount, setAttendeeCount] = useState(0);
   const [state, setState] = useState<LoadState>("loading");
+
+  // Polish UI state — client-side only.
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +100,34 @@ export default function Attendees() {
       cancelled = true;
     };
   }, [id]);
+
+  // Per-status counts computed once per attendees change so the chips can
+  // show "(n)" without re-walking the list on every render.
+  const statusCounts = useMemo(() => {
+    const counts = { going: 0, interested: 0, not_going: 0 };
+    for (const a of attendees) {
+      if (a.status in counts) counts[a.status] += 1;
+    }
+    return counts;
+  }, [attendees]);
+
+  const filteredAttendees = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return attendees.filter((a) => {
+      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      if (!q) return true;
+      // Match against the rendered name so users can search "Anonymous" and
+      // find rows whose display_name is null.
+      const name = (a.display_name || "Anonymous").toLowerCase();
+      return name.includes(q);
+    });
+  }, [attendees, query, statusFilter]);
+
+  const filtersActive = query.trim() !== "" || statusFilter !== "all";
+  const clearFilters = () => {
+    setQuery("");
+    setStatusFilter("all");
+  };
 
   const header = (
     <div className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-xl">
@@ -181,6 +225,7 @@ export default function Attendees() {
     );
   }
 
+  // ---------- Ready ----------
   return (
     <div className="min-h-screen bg-background">
       {header}
@@ -188,29 +233,104 @@ export default function Attendees() {
         <p className="mb-4 text-sm text-muted-foreground">
           {attendeeCount} {attendeeCount === 1 ? "person" : "people"} responded
         </p>
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {attendees.map((a) => (
-            <li
-              key={`${a.event_id}-${a.user_id}`}
-              className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-surface-hover"
-            >
-              <div
-                aria-hidden="true"
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+
+        {/* Filter bar */}
+        <div
+          data-testid="attendees-filter-bar"
+          className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center"
+        >
+          <div className="relative flex-1">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search attendees by name"
+              placeholder="Search attendees"
+              className="w-full rounded-xl border border-border bg-card py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+
+          <div
+            role="group"
+            aria-label="Filter by RSVP status"
+            className="flex flex-wrap gap-2"
+          >
+            {STATUS_CHIPS.map((s) => {
+              const active = statusFilter === s;
+              const count =
+                s === "all"
+                  ? attendees.length
+                  : statusCounts[s as AttendeeStatus];
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setStatusFilter(s)}
+                  aria-pressed={active}
+                  data-testid={`chip-${s}`}
+                  className={
+                    "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+                    (active
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-muted-foreground hover:bg-surface-hover hover:text-foreground")
+                  }
+                >
+                  {chipLabel(s)} ({count})
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {filteredAttendees.length === 0 ? (
+          <div
+            data-testid="attendees-no-results"
+            className="mx-auto flex max-w-md flex-col items-center rounded-xl border border-border bg-card p-8 text-center"
+          >
+            <Users className="mb-3 h-8 w-8 text-muted-foreground" />
+            <p className="font-semibold text-foreground">No attendees match</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Try a different search or clear the filters to see everyone.
+            </p>
+            {filtersActive && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
               >
-                {getInitials(a.display_name)}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate font-medium text-foreground">
-                  {a.display_name || "Anonymous"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {statusLabel(a.status)}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ul>
+                <X className="h-3 w-3" /> Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredAttendees.map((a) => (
+              <li
+                key={`${a.event_id}-${a.user_id}`}
+                className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-colors hover:bg-surface-hover"
+              >
+                <div
+                  aria-hidden="true"
+                  className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+                >
+                  {getInitials(a.display_name)}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">
+                    {a.display_name || "Anonymous"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {statusLabel(a.status)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
