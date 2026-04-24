@@ -18,6 +18,9 @@ exports.getAllEvents = async (req, res) => {
 
 exports.getEventById = async (req, res) => {
   const { id } = req.params;
+  if (isNaN(parseInt(id, 10))) {
+    return res.status(400).json({ error: "Invalid ID" });
+  }
   try {
     const result = await pool.query(`
       SELECT e.*, COUNT(ea.user_id)::INT AS rsvp_count
@@ -66,6 +69,9 @@ exports.createEvent = async (req, res) => {
 
 exports.updateEvent = async (req, res) => {
   const { id } = req.params;
+  if (isNaN(parseInt(id, 10))) {
+    return res.status(400).json({ error: "Invalid ID" });
+  }
   const { title, description, start_time, end_time, location_name } = req.body;
 
   if (!title || !start_time) {
@@ -123,6 +129,9 @@ exports.updateEvent = async (req, res) => {
 
 exports.deleteEvent = async (req, res) => {
   const { id } = req.params;
+  if (isNaN(parseInt(id, 10))) {
+    return res.status(400).json({ error: "Invalid ID" });
+  }
   try {
     const result = await pool.query("DELETE FROM events WHERE event_id = $1 AND created_by = $2 RETURNING *", [id, req.user.userId]);
     if (result.rows.length === 0) {

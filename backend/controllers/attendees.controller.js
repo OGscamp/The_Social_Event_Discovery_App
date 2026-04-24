@@ -2,6 +2,9 @@ const pool = require("../config/db");
 
 exports.getEventAttendees = async (req, res) => {
   const { eventId } = req.params;
+  if (isNaN(parseInt(eventId, 10))) {
+    return res.status(400).json({ error: "Invalid ID" });
+  }
 
   try {
     // Check if event exists
