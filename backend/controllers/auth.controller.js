@@ -46,6 +46,9 @@ exports.signup = async (req, res) => {
       user: { id: userRow.user_id, name: userRow.display_name, email: userRow.email },
     });
   } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Email already exists" });
+    }
     console.error("Signup error:", err);
     return res.status(500).json({ error: "Server error" });
   }
