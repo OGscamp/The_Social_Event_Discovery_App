@@ -3,7 +3,7 @@ name: DB Validation
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [main]
 
 permissions:
   contents: read
@@ -45,4 +45,11 @@ jobs:
         run: |
           psql -h localhost -U myuser -d mydb -c "\dt"
 
-
+      - name: Verify foreign key constraints
+        env:
+          PGPASSWORD: mypassword
+        run: |
+          psql -h localhost -U myuser -d mydb -c "
+          SELECT COUNT(*) FROM information_schema.table_constraints
+          WHERE constraint_type = 'FOREIGN KEY'
+          "
