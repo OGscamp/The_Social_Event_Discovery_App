@@ -18,7 +18,10 @@ router.get(
   authController.googleCallback
 );
 
-// Token check
+// Token check + profile fetch
 router.get("/me", authController.getMe);
+
+// Update display name on the authenticated user
+router.patch("/me", authController.updateMe);
 
 module.exports = router;

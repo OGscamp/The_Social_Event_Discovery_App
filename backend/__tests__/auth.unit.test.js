@@ -270,4 +270,125 @@ describe("Auth API (unit)", () => {
       errSpy.mockRestore();
     });
   });
+
+  // ─── PATCH /auth/me ───────────────────────────────────────────────────────
+
+  describe("PATCH /auth/me", () => {
+    test("TC-AUTH-016: returns 401 when no token is provided", async () => {
+      const res = await request(app)
+        .patch("/auth/me")
+        .send({ name: "New Name" });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toMatch(/missing token/i);
+    });
+
+    test("TC-AUTH-017: returns 200 with updated user record on valid request", async () => {
+      pool.query.mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            user_id: 7,
+            email: "alice@test.com",
+            display_name: "Alice Renamed",
+            created_at: new Date("2026-01-15T00:00:00Z"),
+          },
+        ],
+      });
+
+      const token = jwt.sign(
+        { userId: 7, email: "alice@test.com" },
+        JWT_SECRET,
+        { expiresIn: "1h" }
+      );
+
+      const res = await request(app)
+        .patch("/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "Alice Renamed" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.user).toEqual({
+        id: 7,
+        email: "alice@test.com",
+        name: "Alice Renamed",
+        created_at: expect.any(String),
+      });
+      // Verify the SQL was parameterized with the trimmed name and the
+      // userId from the JWT — not anything from the request body.
+      expect(pool.query).toHaveBeenCalledWith(
+        expect.stringMatching(/UPDATE users[\s\S]*SET display_name/),
+        ["Alice Renamed", 7]
+      );
+    });
+
+    test("TC-AUTH-018: returns 400 when name is missing or whitespace-only", async () => {
+      const token = jwt.sign(
+        { userId: 7, email: "alice@test.com" },
+        JWT_SECRET,
+        { expiresIn: "1h" }
+      );
+
+      // Missing name
+      const res1 = await request(app)
+        .patch("/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({});
+      expect(res1.status).toBe(400);
+      expect(res1.body.error).toMatch(/name is required/i);
+
+      // Whitespace-only name
+      const res2 = await request(app)
+        .patch("/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "   " });
+      expect(res2.status).toBe(400);
+      expect(res2.body.error).toMatch(/cannot be empty/i);
+
+      // No DB call should have been made for either rejection.
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test("TC-AUTH-019: returns 400 when name exceeds the length cap", async () => {
+      const token = jwt.sign(
+        { userId: 7, email: "alice@test.com" },
+        JWT_SECRET,
+        { expiresIn: "1h" }
+      );
+
+      const tooLong = "A".repeat(101);
+
+      const res = await request(app)
+        .patch("/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: tooLong });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/100 characters or fewer/i);
+      expect(pool.query).not.toHaveBeenCalled();
+    });
+
+    test("TC-AUTH-020: returns 500 when the database query fails", async () => {
+      pool.query.mockRejectedValueOnce(new Error("db down"));
+
+      const token = jwt.sign(
+        { userId: 7, email: "alice@test.com" },
+        JWT_SECRET,
+        { expiresIn: "1h" }
+      );
+
+      const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+
+      const res = await request(app)
+        .patch("/auth/me")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "Alice" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toMatch(/server error/i);
+
+      errSpy.mockRestore();
+    });
+  });
 });
