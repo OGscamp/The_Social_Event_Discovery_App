@@ -14,18 +14,12 @@ npm install
 npm run dev
 
 ## Tech Stack
-- Frontend: React + Vite + Tailwind
-- Backend: Node.js (planned)
-- Database: PostgreSQL (planned)
-
-## Sprint 1 Scope
-- Project setup
-- Frontend scaffold
-- Local development environment
-
-## Known Limitations
-- Backend not yet integrated
-- Mock data only
+- Frontend: React + Vite + Tailwind + TypeScript
+- Backend: Node.js + Express
+- Database: PostgreSQL + Redis
+- Auth: JWT + Google OAuth
+- Testing: Jest + Supertest (backend), Vitest (frontend)
+- CI/CD: GitHub Actions
 ```
 
 ## Backend
@@ -89,7 +83,7 @@ PORT=4000
 
 # PostgreSQL
 PG_HOST=localhost
-PG_PORT=5432
+PG_PORT=5499
 PG_USER=myuser
 PG_PASSWORD=mypassword
 PG_DATABASE=mydb
@@ -113,6 +107,10 @@ note - Make sure these values match your docker-compose.yml configuration.
 ## Running Backend Tests
 - npm test
 
+## Running Frontend Tests
+cd frontend/eventconnect-web
+npx vitest run
+
 ## Secret Keys & APIs (Fill these in!)
 TICKETMASTER_API_KEY=ask_the_team_for_the_current_key
 GOOGLE_CLIENT_ID=ask_peter_for_client_id
@@ -123,3 +121,11 @@ SESSION_SECRET=ask_peter_for_the_local_secret_or_make_one_up
 
 note - If you run your backend on a port other than 4000, Google login will fail due to an origin mismatch.
 ````
+
+## CI/CD Pipeline
+
+Three GitHub Actions workflows run on every push and pull request:
+
+- **node-build.yml:** installs dependencies and builds both frontend and backend to catch any build failures early
+- **backend-integration.yml:** spins up PostgreSQL and Redis, runs migrations, and executes the full backend test suite with coverage reporting
+- **db-validation.yml:** runs migrations against a clean PostgreSQL instance and verifies all required tables and foreign key constraints exist
