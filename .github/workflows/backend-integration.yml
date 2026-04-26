@@ -56,7 +56,7 @@ jobs:
           PG_DATABASE: mydb
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test-secret
-        run: npm test
+        run: npm test -- --coverage --coverageReporters=text-summary
 
 deploy:
   needs: integration-tests
