@@ -30,5 +30,22 @@ services:
       timeout: 3s
       retries: 5
 
+  backend:
+    image: node:20
+    container_name: tseda-backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    ports:
+      - "4000:4000"
+    env_file:
+      - ./backend/.env
+    command: npm run dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
