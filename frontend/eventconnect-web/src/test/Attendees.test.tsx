@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import Attendees from "../pages/Attendees";
@@ -169,5 +169,175 @@ describe("Attendees page", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
+  });
+
+  // ─── PR 3 polish: search filter + status chips ─────────────────────────────
+
+  const threeMixedAttendees = [
+    {
+      event_id: "evt-1",
+      user_id: 1,
+      display_name: "Sofia Chen",
+      status: "going",
+      joined_at: "2026-04-01T00:00:00Z",
+    },
+    {
+      event_id: "evt-1",
+      user_id: 2,
+      display_name: "Marcus Johnson",
+      status: "interested",
+      joined_at: "2026-04-02T00:00:00Z",
+    },
+    {
+      event_id: "evt-1",
+      user_id: 3,
+      display_name: "Ava Rodriguez",
+      status: "not_going",
+      joined_at: "2026-04-03T00:00:00Z",
+    },
+  ];
+
+  it("filters the attendee list by the search query (TC-ATT-009)", async () => {
+    (fetch as any).mockResolvedValueOnce(buildOkResponse(threeMixedAttendees));
+
+    renderAtEvent("evt-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Sofia Chen")).toBeInTheDocument();
+    });
+
+    const input = screen.getByLabelText(/search attendees by name/i);
+    fireEvent.change(input, { target: { value: "sofia" } });
+
+    expect(screen.getByText("Sofia Chen")).toBeInTheDocument();
+    expect(screen.queryByText("Marcus Johnson")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ava Rodriguez")).not.toBeInTheDocument();
+  });
+
+  it("search is case-insensitive (TC-ATT-010)", async () => {
+    (fetch as any).mockResolvedValueOnce(buildOkResponse(threeMixedAttendees));
+
+    renderAtEvent("evt-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Marcus Johnson")).toBeInTheDocument();
+    });
+
+    const input = screen.getByLabelText(/search attendees by name/i);
+    fireEvent.change(input, { target: { value: "MARCUS" } });
+
+    expect(screen.getByText("Marcus Johnson")).toBeInTheDocument();
+    expect(screen.queryByText("Sofia Chen")).not.toBeInTheDocument();
+  });
+
+  it("status chip filters the list to a single status (TC-ATT-011)", async () => {
+    (fetch as any).mockResolvedValueOnce(buildOkResponse(threeMixedAttendees));
+
+    renderAtEvent("evt-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Sofia Chen")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("chip-interested"));
+
+    expect(screen.getByText("Marcus Johnson")).toBeInTheDocument();
+    expect(screen.queryByText("Sofia Chen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ava Rodriguez")).not.toBeInTheDocument();
+    // The active chip should expose its pressed state for a11y.
+    expect(screen.getByTestId("chip-interested")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("search and chip filters compose (TC-ATT-012)", async () => {
+    (fetch as any).mockResolvedValueOnce(
+      buildOkResponse([
+        ...threeMixedAttendees,
+        {
+          event_id: "evt-1",
+          user_id: 4,
+          display_name: "Sofia Martinez",
+          status: "interested",
+          joined_at: "2026-04-04T00:00:00Z",
+        },
+      ])
+    );
+
+    renderAtEvent("evt-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Sofia Chen")).toBeInTheDocument();
+    });
+
+    // "Interested" + "Sofia" should match only Sofia Martinez.
+    fireEvent.click(screen.getByTestId("chip-interested"));
+    fireEvent.change(
+      screen.getByLabelText(/search attendees by name/i),
+      { target: { value: "sofia" } }
+    );
+
+    expect(screen.getByText("Sofia Martinez")).toBeInTheDocument();
+    expect(screen.queryByText("Sofia Chen")).not.toBeInTheDocument(); // wrong status
+    expect(screen.queryByText("Marcus Johnson")).not.toBeInTheDocument();
+  });
+
+  it("shows the no-results card with a Clear filters button when filters exclude everyone (TC-ATT-013)", async () => {
+    (fetch as any).mockResolvedValueOnce(buildOkResponse(threeMixedAttendees));
+
+    renderAtEvent("evt-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Sofia Chen")).toBeInTheDocument();
+    });
+
+    fireEvent.change(
+      screen.getByLabelText(/search attendees by name/i),
+      { target: { value: "zzznobody" } }
+    );
+
+    expect(screen.getByTestId("attendees-no-results")).toBeInTheDocument();
+    expect(screen.getByText(/no attendees match/i)).toBeInTheDocument();
+
+    // Clicking "Clear filters" should restore the full list without re-fetching.
+    const clearBtn = screen.getByRole("button", { name: /clear filters/i });
+    fireEvent.click(clearBtn);
+
+    expect(screen.getByText("Sofia Chen")).toBeInTheDocument();
+    expect(screen.getByText("Marcus Johnson")).toBeInTheDocument();
+    expect(screen.getByText("Ava Rodriguez")).toBeInTheDocument();
+    // Only the original fetch — Clear filters must not trigger another request.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("anonymous attendees are searchable by the word 'Anonymous' (TC-ATT-014)", async () => {
+    (fetch as any).mockResolvedValueOnce(
+      buildOkResponse([
+        ...threeMixedAttendees,
+        {
+          event_id: "evt-1",
+          user_id: 5,
+          display_name: null,
+          status: "going",
+          joined_at: "2026-04-05T00:00:00Z",
+        },
+      ])
+    );
+
+    renderAtEvent("evt-1");
+
+    await waitFor(() => {
+      expect(screen.getByText("Anonymous")).toBeInTheDocument();
+    });
+
+    fireEvent.change(
+      screen.getByLabelText(/search attendees by name/i),
+      { target: { value: "anon" } }
+    );
+
+    expect(screen.getByText("Anonymous")).toBeInTheDocument();
+    expect(screen.queryByText("Sofia Chen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marcus Johnson")).not.toBeInTheDocument();
   });
 });
