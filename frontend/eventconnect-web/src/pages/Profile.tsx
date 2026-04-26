@@ -77,6 +77,8 @@ export default function Profile() {
   });
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,33 +232,102 @@ export default function Profile() {
 
   const openEdit = () => {
     setEditName(user.name);
+    setEditError(null);
     setEditOpen(true);
   };
 
-  const saveEdit = () => {
-    const trimmed = editName.trim();
-    const nextName = trimmed || user.name;
-    setUser({ ...user, name: nextName });
+  // Saves the edited display name via PATCH /auth/me. Closes BUG-S3-006:
+  // before this PR the modal saved optimistically to localStorage only and
+  // was overwritten on the next /auth/me fetch.
+  const saveEdit = async () => {
+    if (editSaving) return;
+    setEditError(null);
 
-    // Optimistic localStorage update. Backend PATCH endpoint for profile
-    // edits is not implemented yet (filed as BUG-S3-006); name edits here
-    // survive until the next /auth/me response overwrites them.
-    try {
-      const raw = localStorage.getItem("user");
-      const stored = raw ? JSON.parse(raw) : {};
-      localStorage.setItem(
-        "user",
-        JSON.stringify({ ...stored, name: nextName })
-      );
-    } catch {
-      // storage full or parse error — ignore
+    const trimmed = editName.trim();
+    if (trimmed.length === 0) {
+      setEditError("Name cannot be empty");
+      return;
+    }
+    if (trimmed === user.name) {
+      // Nothing changed — close the modal without a request.
+      setEditOpen(false);
+      return;
     }
 
-    setEditOpen(false);
-    toast({
-      title: "Profile updated",
-      description: "Your name has been updated.",
-    });
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setEditError("Your session has expired. Please log in again.");
+      return;
+    }
+
+    setEditSaving(true);
+    try {
+      const res = await fetch("/auth/me", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: trimmed }),
+      });
+
+      if (!res.ok) {
+        // Validation errors (400) come back with a server-side message we
+        // can surface inline; everything else gets a generic toast so the
+        // modal can stay open for the user to retry.
+        let serverMessage: string | undefined;
+        try {
+          const body = await res.json();
+          serverMessage = body?.error;
+        } catch {
+          // ignore JSON parse failures — we'll fall through to generic copy
+        }
+
+        if (res.status === 400 && serverMessage) {
+          setEditError(serverMessage);
+        } else {
+          toast({
+            title: "Couldn't save your changes",
+            description:
+              serverMessage ?? "Something went wrong. Please try again.",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
+      const data: { ok: boolean; user: ApiUser } = await res.json();
+      setUser(data.user);
+
+      // Keep localStorage in sync so other tabs / a page reload see the
+      // updated name immediately, before the next /auth/me round-trip.
+      try {
+        const raw = localStorage.getItem("user");
+        const stored = raw ? JSON.parse(raw) : {};
+        localStorage.setItem(
+          "user",
+          JSON.stringify({ ...stored, name: data.user.name })
+        );
+      } catch {
+        // storage full or parse error — ignore
+      }
+
+      setEditOpen(false);
+      toast({
+        title: "Profile updated",
+        description: "Your name has been updated.",
+      });
+    } catch (err) {
+      console.error("Error saving profile:", err);
+      toast({
+        title: "Couldn't save your changes",
+        description:
+          "Network error. Check your connection and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const handleDelete = () => {
@@ -364,7 +435,13 @@ export default function Profile() {
         </div>
       </div>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          if (!open) setEditError(null);
+          setEditOpen(open);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Profile</DialogTitle>
@@ -378,16 +455,35 @@ export default function Profile() {
               <Input
                 id="edit-name"
                 value={editName}
-                onChange={(e) => setEditName(e.target.value)}
+                onChange={(e) => {
+                  setEditName(e.target.value);
+                  if (editError) setEditError(null);
+                }}
                 placeholder="Your name"
+                aria-invalid={editError ? true : undefined}
+                aria-describedby={editError ? "edit-name-error" : undefined}
+                disabled={editSaving}
               />
+              {editError && (
+                <p
+                  id="edit-name-error"
+                  role="alert"
+                  className="text-xs text-destructive"
+                >
+                  {editError}
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline" disabled={editSaving}>
+                Cancel
+              </Button>
             </DialogClose>
-            <Button onClick={saveEdit}>Save</Button>
+            <Button onClick={saveEdit} disabled={editSaving}>
+              {editSaving ? "Saving…" : "Save"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

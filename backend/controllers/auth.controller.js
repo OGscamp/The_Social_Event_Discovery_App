@@ -174,3 +174,68 @@ exports.getMe = async (req, res) => {
     return res.status(500).json({ error: "Server error" });
   }
 };
+
+// PATCH /auth/me
+// Updates the authenticated user's display name. Closes BUG-S3-006: until
+// this endpoint existed the Edit Profile modal saved optimistically to
+// localStorage only and was overwritten on the next /auth/me fetch.
+const NAME_MAX_LENGTH = 100;
+
+exports.updateMe = async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+
+  if (!token) {
+    return res.status(401).json({ error: "Missing token" });
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+
+  const { name } = req.body || {};
+
+  if (typeof name !== "string") {
+    return res.status(400).json({ error: "Name is required" });
+  }
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    return res.status(400).json({ error: "Name cannot be empty" });
+  }
+  if (trimmed.length > NAME_MAX_LENGTH) {
+    return res
+      .status(400)
+      .json({ error: `Name must be ${NAME_MAX_LENGTH} characters or fewer` });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET display_name = $1
+       WHERE user_id = $2
+       RETURNING user_id, email, display_name, created_at`,
+      [trimmed, payload.userId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userRow = result.rows[0];
+    return res.json({
+      ok: true,
+      user: {
+        id: userRow.user_id,
+        email: userRow.email,
+        name: userRow.display_name,
+        created_at: userRow.created_at,
+      },
+    });
+  } catch (err) {
+    console.error("updateMe error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+};
