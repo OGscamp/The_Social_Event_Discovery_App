@@ -114,7 +114,7 @@ exports.googleCallback = (req, res) => {
   res.redirect(`http://localhost:8080/login?token=${token}&user=${encodeURIComponent(userJson)}`);
 };
 
-exports.getMe = (req, res) => {
+exports.getMe = async (req, res) => {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
 
@@ -122,10 +122,55 @@ exports.getMe = (req, res) => {
     return res.status(401).json({ error: "Missing token" });
   }
 
+  let payload;
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    res.json({ ok: true, payload });
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
-    res.status(401).json({ error: "Invalid token" });
+    return res.status(401).json({ error: "Invalid token" });
+  }
+
+  try {
+    const userResult = await pool.query(
+      `SELECT user_id, email, display_name, created_at
+       FROM users
+       WHERE user_id = $1`,
+      [payload.userId]
+    );
+
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const userRow = userResult.rows[0];
+
+    const summaryResult = await pool.query(
+      `SELECT status, COUNT(*)::INT AS count
+       FROM event_attendees
+       WHERE user_id = $1
+       GROUP BY status`,
+      [payload.userId]
+    );
+
+    const rsvpSummary = { going: 0, interested: 0, not_going: 0 };
+    for (const row of summaryResult.rows) {
+      if (row.status in rsvpSummary) {
+        rsvpSummary[row.status] = row.count;
+      }
+    }
+
+    return res.json({
+      ok: true,
+      payload,
+      user: {
+        id: userRow.user_id,
+        email: userRow.email,
+        name: userRow.display_name,
+        created_at: userRow.created_at,
+      },
+      rsvp_summary: rsvpSummary,
+    });
+  } catch (err) {
+    console.error("getMe error:", err);
+    return res.status(500).json({ error: "Server error" });
   }
 };
