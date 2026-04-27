@@ -118,26 +118,14 @@ exports.googleCallback = (req, res) => {
 };
 
 exports.getMe = async (req, res) => {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-
-  if (!token) {
-    return res.status(401).json({ error: "Missing token" });
-  }
-
-  let payload;
   try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
-  }
+    const userId = req.user.userId;
 
-  try {
     const userResult = await pool.query(
       `SELECT user_id, email, display_name, created_at
        FROM users
        WHERE user_id = $1`,
-      [payload.userId]
+      [userId]
     );
 
     if (userResult.rowCount === 0) {
@@ -151,7 +139,7 @@ exports.getMe = async (req, res) => {
        FROM event_attendees
        WHERE user_id = $1
        GROUP BY status`,
-      [payload.userId]
+      [userId]
     );
 
     const rsvpSummary = { going: 0, interested: 0, not_going: 0 };
@@ -163,7 +151,7 @@ exports.getMe = async (req, res) => {
 
     return res.json({
       ok: true,
-      payload,
+      payload: req.user,
       user: {
         id: userRow.user_id,
         email: userRow.email,
@@ -185,20 +173,6 @@ exports.getMe = async (req, res) => {
 const NAME_MAX_LENGTH = 100;
 
 exports.updateMe = async (req, res) => {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-
-  if (!token) {
-    return res.status(401).json({ error: "Missing token" });
-  }
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
-  }
-
   const { name } = req.body || {};
 
   if (typeof name !== "string") {
@@ -220,7 +194,7 @@ exports.updateMe = async (req, res) => {
        SET display_name = $1
        WHERE user_id = $2
        RETURNING user_id, email, display_name, created_at`,
-      [trimmed, payload.userId]
+      [trimmed, req.user.userId]
     );
 
     if (result.rowCount === 0) {
