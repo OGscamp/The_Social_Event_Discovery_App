@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const passport = require("../config/passport");
 const authController = require("../controllers/auth.controller");
+const authenticateToken = require("../middleware/auth");
 
 // Signup
 router.post("/signup", authController.signup);
@@ -19,9 +20,9 @@ router.get(
 );
 
 // Token check + profile fetch
-router.get("/me", authController.getMe);
+router.get("/me", authenticateToken, authController.getMe);
 
 // Update display name on the authenticated user
-router.patch("/me", authController.updateMe);
+router.patch("/me", authenticateToken, authController.updateMe);
 
 module.exports = router;
