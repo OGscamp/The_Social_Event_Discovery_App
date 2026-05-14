@@ -1,11 +1,12 @@
--- Social Event Discovery App - Starter Schema (Sprint 1)
--- Target DB: PostgreSQL (adjust as needed)
+-- Social Event Discovery App - Full Schema
+-- Apply via migrations/ folder (Docker auto-runs on fresh init)
 
 CREATE TABLE IF NOT EXISTS users (
   user_id        BIGSERIAL PRIMARY KEY,
   email          VARCHAR(255) UNIQUE NOT NULL,
   display_name   VARCHAR(100) NOT NULL,
-  password_hash  TEXT NOT NULL,
+  password_hash  TEXT,                          -- nullable: Google OAuth users have no password
+  google_id      VARCHAR(255) UNIQUE,           -- set for Google OAuth users
   created_at     TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -17,7 +18,9 @@ CREATE TABLE IF NOT EXISTS events (
   start_time     TIMESTAMP NOT NULL,
   end_time       TIMESTAMP,
   created_by     BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
-  created_at     TIMESTAMP NOT NULL DEFAULT NOW()
+  created_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+  capacity       INTEGER CHECK (capacity > 0)
 );
 
 CREATE TABLE IF NOT EXISTS event_attendees (

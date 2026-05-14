@@ -5,6 +5,8 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Profile from "./pages/Profile";
 import Chat from "./pages/Chat";
+import Attendees from "./pages/Attendees";
+import NotFound from "./pages/NotFound";
 import Navbar from "./components/Navbar";
 
 function ProtectedRoute({ children }: { children: JSX.Element }) {
@@ -39,6 +41,17 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/events/:id/attendees"
+          element={
+            <ProtectedRoute>
+              <Attendees />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );
